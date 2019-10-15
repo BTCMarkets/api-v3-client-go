@@ -5,6 +5,7 @@ import (
 	"crypto/sha512"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -16,15 +17,19 @@ import (
 
 const apiKey = "your api key"
 const privateKey = "your private key in base64"
-const baseUrl = "https://server-host-url"
+const baseUrl = "https://api.btcmarkets.net"
 
 const apiPath = "/v3/orders"
 
 func main() {
 
-	id := extractOrderId(addOrder())
 	getOpenOrders()
-	cancelOrder(id)
+	response, err := addOrder()
+	if err != nil {
+		log.Println(err.Error())
+	} else {
+		cancelOrder(extractOrderId(response))
+	}
 }
 
 func extractOrderId(order string) string {
@@ -35,11 +40,11 @@ func extractOrderId(order string) string {
 
 func getOpenOrders() {
 	log.Println("list orders")
-	responseBody := makeHttpCall("GET", apiPath, "status=open", "")
+	responseBody, _ := makeHttpCall("GET", apiPath, "status=open", "")
 	log.Println(responseBody)
 }
 
-func addOrder() string {
+func addOrder() (string, error) {
 	orderData := map[string]string{
 		"marketId": "XRP-AUD",
 		"price":    "0.1",
@@ -50,9 +55,9 @@ func addOrder() string {
 	orderJson, _ := json.Marshal(orderData)
 	log.Println("adding order " + string(orderJson))
 
-	responseBody := makeHttpCall("POST", apiPath, "", string(orderJson))
+	responseBody, err := makeHttpCall("POST", apiPath, "", string(orderJson))
 	log.Println(responseBody)
-	return responseBody
+	return responseBody, err
 }
 
 func cancelOrder(orderId string) {
@@ -61,7 +66,7 @@ func cancelOrder(orderId string) {
 		makeHttpCall("DELETE", apiPath+"/"+orderId, "", ""))
 }
 
-func makeHttpCall(method string, path string, query string, body string) string {
+func makeHttpCall(method string, path string, query string, body string) (string, error) {
 
 	headers := buildAuthHeaders(method, path, body)
 
@@ -80,16 +85,23 @@ func makeHttpCall(method string, path string, query string, body string) string 
 
 	request.Header = headers
 	response, err := (&http.Client{}).Do(request)
-	log.Println(response)
-	data, err := ioutil.ReadAll(response.Body)
-
 	if err != nil {
-		panic(err)
+		return "", err
 	}
+	log.Println(response)
 	defer response.Body.Close()
 
+	data, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		return "", nil
+	}
+
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return "", fmt.Errorf("HTTP %d, %s", response.StatusCode, response)
+	}
+
 	responseBody := string(data)
-	return responseBody
+	return responseBody, nil
 }
 
 func buildAuthHeaders(method string, path string, body string) http.Header {
